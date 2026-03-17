@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pydantic
+pyzmq
+aiokafka
+opendis
+pydantic-ai[openai]
+openai
+sse-starlette
