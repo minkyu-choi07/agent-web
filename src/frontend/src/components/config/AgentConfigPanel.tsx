@@ -32,7 +32,7 @@ import {
 } from '@/store/flowStore'
 import { useDeployStore } from '@/store/deployStore'
 import { useChatStore } from '@/store/chatStore'
-import { anvilApi } from '@/lib/anvilApi'
+import { champApi } from '@/lib/champApi'
 
 const AVAILABLE_TOOLS = [
   'AGENT_MESSAGE_SERVER',
@@ -205,7 +205,7 @@ function AgentIntelView({
   const fetchFiles = useCallback(async () => {
     setLoadingFiles(true)
     try {
-      const res = (await anvilApi.listAgentFiles(
+      const res = (await champApi.listAgentFiles(
         agentId,
       )) as { files: WorkspaceFile[] }
       setFiles(res.files || [])

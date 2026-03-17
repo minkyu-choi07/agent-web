@@ -12,6 +12,7 @@ export async function POST(req: NextRequest) {
     path,
     method = 'GET',
     body,
+    headers: extraHeaders,
   } = await req.json()
 
   if (!host || typeof host !== 'string') {
@@ -24,11 +25,19 @@ export async function POST(req: NextRequest) {
   const url = `${host.replace(/\/+$/, '')}${path}`
 
   try {
+    const fetchHeaders: Record<string, string> = {
+      ...(extraHeaders || {}),
+    }
+    if (body) {
+      fetchHeaders['Content-Type'] = 'application/json'
+    }
+
     const res = await fetch(url, {
       method,
-      headers: body
-        ? { 'Content-Type': 'application/json' }
-        : undefined,
+      headers:
+        Object.keys(fetchHeaders).length > 0
+          ? fetchHeaders
+          : undefined,
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(5000),
     })

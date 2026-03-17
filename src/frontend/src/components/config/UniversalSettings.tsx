@@ -242,35 +242,35 @@ export function UniversalSettings() {
   const updateSettings = useFlowStore(
     (s) => s.updateUniversalSettings,
   )
-  const anvilHost = useFlowStore((s) => s.anvilHost)
-  const setAnvilHost = useFlowStore(
-    (s) => s.setAnvilHost,
+  const champHost = useFlowStore((s) => s.champHost)
+  const setChampHost = useFlowStore(
+    (s) => s.setChampHost,
   )
   const llmConfiguredAt = useFlowStore(
     (s) => s.llmConfiguredAt,
   )
-  const anvilConfiguredAt = useFlowStore(
-    (s) => s.anvilConfiguredAt,
+  const champConfiguredAt = useFlowStore(
+    (s) => s.champConfiguredAt,
   )
   const configureLlm = useFlowStore(
     (s) => s.configureLlm,
   )
-  const configureAnvil = useFlowStore(
-    (s) => s.configureAnvil,
+  const configureChamp = useFlowStore(
+    (s) => s.configureChamp,
   )
   const togglePanel = useFlowStore(
     (s) => s.toggleSettingsPanel,
   )
   const [showKey, setShowKey] = useState(false)
   const [expandedSection, setExpandedSection] =
-    useState<'llm' | 'anvil' | null>(null)
+    useState<'llm' | 'champ' | null>(null)
 
   const models =
     DEFAULT_MODELS[settings.provider] ?? []
   const llmReady = !!llmConfiguredAt
-  const anvilReady = !!anvilConfiguredAt
+  const champReady = !!champConfiguredAt
 
-  const toggle = (section: 'llm' | 'anvil') =>
+  const toggle = (section: 'llm' | 'champ') =>
     setExpandedSection((v) =>
       v === section ? null : section,
     )
@@ -278,10 +278,10 @@ export function UniversalSettings() {
   const handleConfigureLlm =
     useCallback(async () => {
       const host =
-        useFlowStore.getState().anvilHost
+        useFlowStore.getState().champHost
       if (!host) {
         throw new Error(
-          'Configure Anvil host first',
+          'Configure Champ host first',
         )
       }
       const res = await fetch('/api/proxy', {
@@ -306,7 +306,7 @@ export function UniversalSettings() {
       configureLlm()
     }, [configureLlm])
 
-  const handleConfigureAnvil =
+  const handleConfigureChamp =
     useCallback(async () => {
       const res = await fetch('/api/proxy', {
         method: 'POST',
@@ -314,7 +314,7 @@ export function UniversalSettings() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          host: anvilHost,
+          host: champHost,
           path: '/ping',
           method: 'GET',
         }),
@@ -327,12 +327,12 @@ export function UniversalSettings() {
           data.error || `Failed (${res.status})`,
         )
       }
-      configureAnvil()
-    }, [anvilHost, configureAnvil])
+      configureChamp()
+    }, [champHost, configureChamp])
 
   const llmFieldsFilled =
     !!settings.apiKey && !!settings.defaultModel
-  const anvilFieldsFilled = !!anvilHost
+  const champFieldsFilled = !!champHost
 
   return (
     <motion.aside
@@ -472,16 +472,16 @@ export function UniversalSettings() {
         {/* Divider */}
         <div className="border-t border-hud-border" />
 
-        {/* ── Anvil ──────────────────────────────── */}
+        {/* ── Champ ──────────────────────────────── */}
         <ConfigSection
           icon={Server}
-          title="Anvil"
-          ready={anvilReady}
-          expanded={expandedSection === 'anvil'}
-          onToggle={() => toggle('anvil')}
-          onConfigure={handleConfigureAnvil}
-          configureDisabled={!anvilFieldsFilled}
-          configuredAt={anvilConfiguredAt}
+          title="Champ"
+          ready={champReady}
+          expanded={expandedSection === 'champ'}
+          onToggle={() => toggle('champ')}
+          onConfigure={handleConfigureChamp}
+          configureDisabled={!champFieldsFilled}
+          configuredAt={champConfiguredAt}
         >
           {/* Server Host */}
           <div>
@@ -490,9 +490,9 @@ export function UniversalSettings() {
             </label>
             <input
               type="text"
-              value={anvilHost}
+              value={champHost}
               onChange={(e) =>
-                setAnvilHost(e.target.value)
+                setChampHost(e.target.value)
               }
               className="input-field"
               placeholder="http://localhost:8000"

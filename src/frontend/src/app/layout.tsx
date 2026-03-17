@@ -19,7 +19,7 @@ const sourceCodePro = Source_Code_Pro({
 })
 
 export const metadata: Metadata = {
-  title: 'ANVIL // Multi-Agent Flow Editor',
+  title: 'CHAMP // Multi-Agent Flow Editor',
   description:
     'Tactical configuration editor for multi-agent workflows.',
 }

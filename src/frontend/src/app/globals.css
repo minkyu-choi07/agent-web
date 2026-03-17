@@ -512,6 +512,72 @@ input[type="range"]::-moz-range-thumb {
   100% { stroke-dashoffset: -24; }
 }
 
+/* ── MapLibre overrides (dark tactical theme) ───────────────── */
+.maplibregl-ctrl-group {
+  background: var(--clr-surface) !important;
+  border: 1px solid var(--clr-border) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.maplibregl-ctrl-group button {
+  background: var(--clr-surface) !important;
+  border-bottom: 1px solid var(--clr-border) !important;
+  color: var(--clr-text-dim) !important;
+}
+
+.maplibregl-ctrl-group button:hover {
+  background: var(--clr-surface-2) !important;
+}
+
+.maplibregl-ctrl-group button + button {
+  border-top: none !important;
+}
+
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(0.7);
+}
+
+.maplibregl-ctrl-group button:hover .maplibregl-ctrl-icon {
+  filter: invert(0.9) sepia(1) hue-rotate(120deg) saturate(3);
+}
+
+.maplibregl-ctrl-attrib {
+  background: transparent !important;
+}
+
+.maplibregl-ctrl-attrib a {
+  color: var(--clr-text-dim) !important;
+  opacity: 0.3;
+}
+
+.maplibregl-popup-content {
+  background: var(--clr-surface) !important;
+  border: 1px solid var(--clr-border) !important;
+  border-radius: 0 !important;
+  color: var(--clr-text) !important;
+  font-family: var(--font-mono), monospace !important;
+  font-size: 11px !important;
+  padding: 8px 12px !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+}
+
+.maplibregl-popup-tip {
+  border-top-color: var(--clr-surface) !important;
+}
+
+/* ── Threat pulse animation ─────────────────────────────────── */
+@keyframes threatPulse {
+  0%, 100% { opacity: 0.15; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(1.15); }
+}
+
+/* ── Route march animation ──────────────────────────────────── */
+@keyframes routeMarch {
+  0% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: -16; }
+}
+
 /* ── No-scrollbar utility ────────────────────────────────────── */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

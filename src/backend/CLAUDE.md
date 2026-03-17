@@ -1,8 +1,8 @@
-# Anvil Backend — CLAUDE.md
+# Champ Backend — CLAUDE.md
 
 ## Overview
 
-FastAPI backend for the Anvil flow editor. Manages AI agents (via PydanticAI), data connectors (ZMQ/Kafka/DIS), and their interconnections. All state is in-memory.
+FastAPI backend for the Champ flow editor. Manages AI agents (via PydanticAI), data connectors (ZMQ/Kafka/DIS), and their interconnections. All state is in-memory.
 
 ## Stack
 
@@ -16,7 +16,7 @@ FastAPI backend for the Anvil flow editor. Manages AI agents (via PydanticAI), d
 ## Directory Structure
 
 ```
-anvil-backend/
+champ-backend/
 ├── app/
 │   ├── main.py           # FastAPI app — all routes, in-memory stores, connector loops
 │   └── agent_llm.py      # PydanticAI agent creation, streaming execution, tool registry
@@ -107,7 +107,7 @@ GET   /agents/{id}/health
 
 ```
 build_system_prompt(agent_id, agent_info, connectors_store, data_edges):
-  1. Base identity: "You are {name} (id: {id}), an AI agent in Anvil"
+  1. Base identity: "You are {name} (id: {id}), an AI agent in Champ"
   2. Reasoning hint (if reasoning_config set)
   3. Live data feeds: JSON from linked connectors (auto-injected, no tool call needed)
   4. Workspace files: text content (max 4000 chars per file)
@@ -155,7 +155,7 @@ Open CORS (`allow_origins=["*"]`) — the frontend uses server-side proxy, so CO
 ## Dev Commands
 
 ```bash
-cd platform/anvil-backend
+cd platform/champ-backend
 
 # Install dependencies
 pip install -r requirements.txt

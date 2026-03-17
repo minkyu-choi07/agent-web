@@ -4,6 +4,7 @@ import { Settings } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useFlowStore } from '@/store/flowStore'
 import { useDeployStore } from '@/store/deployStore'
+import { useMissionStore } from '@/store/missionStore'
 
 function StatusItem({
   ready,
@@ -45,17 +46,26 @@ export function StatusBar() {
   const llmConfiguredAt = useFlowStore(
     (s) => s.llmConfiguredAt,
   )
-  const anvilConfiguredAt = useFlowStore(
-    (s) => s.anvilConfiguredAt,
+  const champConfiguredAt = useFlowStore(
+    (s) => s.champConfiguredAt,
   )
   const toggleSettingsPanel = useFlowStore(
     (s) => s.toggleSettingsPanel,
   )
 
   const deployStatus = useDeployStore((s) => s.status)
+  const activeView = useMissionStore(
+    (s) => s.activeView,
+  )
+  const entityCount = useMissionStore(
+    (s) => s.entities.length,
+  )
+  const missionPhase = useMissionStore(
+    (s) => s.mission?.phase,
+  )
 
   const llmReady = !!llmConfiguredAt
-  const anvilReady = !!anvilConfiguredAt
+  const champReady = !!champConfiguredAt
   const deployReady = deployStatus === 'deployed'
 
   return (
@@ -69,8 +79,8 @@ export function StatusBar() {
         />
         <span className="status-bar-sep" />
         <StatusItem
-          ready={anvilReady}
-          label="ANVIL"
+          ready={champReady}
+          label="CHAMP"
           onGearClick={toggleSettingsPanel}
         />
         <span className="status-bar-sep" />
@@ -80,15 +90,32 @@ export function StatusBar() {
         />
       </div>
 
-      {/* Right: flow stats */}
+      {/* Right: view-specific stats */}
       <div className="flex items-center gap-3">
-        <span className="status-bar-text">
-          {nodeCount} node{nodeCount !== 1 ? 's' : ''}
-        </span>
-        <span className="status-bar-sep" />
-        <span className="status-bar-text">
-          {edgeCount} edge{edgeCount !== 1 ? 's' : ''}
-        </span>
+        {activeView === 'flow' && (
+          <>
+            <span className="status-bar-text">
+              {nodeCount} node
+              {nodeCount !== 1 ? 's' : ''}
+            </span>
+            <span className="status-bar-sep" />
+            <span className="status-bar-text">
+              {edgeCount} edge
+              {edgeCount !== 1 ? 's' : ''}
+            </span>
+          </>
+        )}
+        {activeView === 'mission' && missionPhase && (
+          <span className="status-bar-text">
+            PHASE: {missionPhase.toUpperCase()}
+          </span>
+        )}
+        {activeView === 'map' && (
+          <span className="status-bar-text">
+            {entityCount} entit
+            {entityCount !== 1 ? 'ies' : 'y'}
+          </span>
+        )}
       </div>
     </footer>
   )

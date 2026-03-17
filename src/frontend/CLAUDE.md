@@ -1,8 +1,8 @@
-# Anvil Frontend — CLAUDE.md
+# Champ Frontend — CLAUDE.md
 
 ## Overview
 
-Anvil is a visual flow editor for orchestrating AI agents and data connectors. Next.js 14 + TypeScript + Zustand + @xyflow/react. Tactical military HUD aesthetic.
+Champ is a visual flow editor for orchestrating AI agents and data connectors. Next.js 14 + TypeScript + Zustand + @xyflow/react. Tactical military HUD aesthetic.
 
 ## Stack
 
@@ -51,13 +51,13 @@ src/
 │   │   └── ToolResultBlock.tsx
 │   └── layout/
 │       ├── Header.tsx        # Top nav (title, tags, deploy, clear)
-│       └── StatusBar.tsx     # Bottom bar (LLM/Anvil/Deploy indicators)
+│       └── StatusBar.tsx     # Bottom bar (LLM/Champ/Deploy indicators)
 ├── store/
 │   ├── flowStore.ts          # Nodes, edges, settings, localStorage persistence
 │   ├── chatStore.ts          # Conversations, SSE streaming, inter-agent msgs
 │   └── deployStore.ts        # Deployment lifecycle & logging
 └── lib/
-    ├── anvilApi.ts           # API client (all calls go through /api/proxy)
+    ├── champApi.ts           # API client (all calls go through /api/proxy)
     └── utils.ts              # cn() helper (clsx + tailwind-merge)
 ```
 
@@ -73,7 +73,7 @@ src/
 
 **Why:** Works with port-forwarding, firewalls, and remote deployments without exposing backend host to the browser.
 
-**How:** Use `anvilApi.ts` functions — they handle proxy routing automatically.
+**How:** Use `champApi.ts` functions — they handle proxy routing automatically.
 
 ### 2. State Management — Zustand
 
@@ -81,7 +81,7 @@ Three independent stores, no cross-store imports:
 
 | Store | Domain | Persistence |
 |-------|--------|-------------|
-| `flowStore` | Nodes, edges, settings, `anvilHost` | localStorage (`anvil-flow-storage`) |
+| `flowStore` | Nodes, edges, settings, `champHost` | localStorage (`champ-flow-storage`) |
 | `chatStore` | Conversations, SSE events, streaming state | Memory only |
 | `deployStore` | Deploy status, logs, deployed IDs | Memory only |
 
@@ -153,7 +153,7 @@ Selective deployment supported — individual agents/connectors can be deployed 
 ## Dev Commands
 
 ```bash
-cd platform/anvil
+cd platform/champ
 npm install          # Install dependencies
 npm run dev          # Dev server (port 3000)
 npm run build        # Production build
@@ -166,5 +166,5 @@ STATIC_EXPORT=true npm run build  # Static export (CI)
 - Path alias: `@/*` → `./src/*`
 - Use `cn()` from `@/lib/utils` for conditional classnames
 - Toast notifications via `react-hot-toast` (imported `toast`)
-- All API types defined inline in `anvilApi.ts` — no separate types file
+- All API types defined inline in `champApi.ts` — no separate types file
 - Component files are PascalCase, store/lib files are camelCase

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Standalone simulation publisher for testing Anvil connectors.
+Standalone simulation publisher for testing Champ connectors.
 
 Publishes synthetic military asset track data via Kafka and/or DIS multicast.
 """
@@ -62,7 +62,9 @@ async def publish_kafka(
     try:
         from aiokafka import AIOKafkaProducer  # type: ignore[import-untyped]
     except ImportError:
-        print("[ERROR] aiokafka is not installed. Install with: pip install aiokafka")
+        print(
+            "[ERROR] aiokafka is not installed. Install with: pip install aiokafka"
+        )
         print("        Kafka publishing is unavailable.")
         return
 
@@ -149,7 +151,9 @@ async def publish_dis(
         from opendis.dis7 import EntityStatePdu  # type: ignore[import-untyped]
         from opendis.RangeCoordinates import GPS  # type: ignore[import-untyped]
     except ImportError:
-        print("[ERROR] opendis is not installed. Install with: pip install opendis")
+        print(
+            "[ERROR] opendis is not installed. Install with: pip install opendis"
+        )
         print("        DIS publishing is unavailable.")
         return
 
@@ -277,16 +281,18 @@ async def main():
     if args.zmq:
         print(f"[INFO] ZMQ endpoint: {args.zmq_endpoint}")
         tasks.append(
-            asyncio.create_task(
-                publish_zmq(args.zmq_endpoint, args.interval)
-            )
+            asyncio.create_task(publish_zmq(args.zmq_endpoint, args.interval))
         )
 
     if args.kafka:
-        print(f"[INFO] Kafka broker: {args.kafka_broker}, topic: {args.kafka_topic}")
+        print(
+            f"[INFO] Kafka broker: {args.kafka_broker}, topic: {args.kafka_topic}"
+        )
         tasks.append(
             asyncio.create_task(
-                publish_kafka(args.kafka_broker, args.kafka_topic, args.interval)
+                publish_kafka(
+                    args.kafka_broker, args.kafka_topic, args.interval
+                )
             )
         )
 

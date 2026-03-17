@@ -58,11 +58,11 @@ export function NodePalette({
   const onDragStart = useCallback(
     (event: React.DragEvent, item: PaletteItem) => {
       event.dataTransfer.setData(
-        'application/anvil-node-type',
+        'application/champ-node-type',
         item.type,
       )
       event.dataTransfer.setData(
-        'application/anvil-node-label',
+        'application/champ-node-label',
         item.label,
       )
       event.dataTransfer.effectAllowed = 'move'

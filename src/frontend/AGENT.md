@@ -1,4 +1,4 @@
-# Anvil Design System
+# Champ Design System
 
 Dark, tactical, military-tech HUD aesthetic. High contrast. Sharp geometry. Scanline and grid overlays for atmosphere. Accent glow on interaction.
 

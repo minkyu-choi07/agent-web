@@ -1,14 +1,20 @@
 import asyncio
+import hashlib
 import json
 import logging
 import os
 import random
+import secrets
+import shutil
 import uuid
+import xml.etree.ElementTree as ET
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
+from xml.dom import minidom
 
-from fastapi import FastAPI, File, Form, Query, UploadFile
+import jwt
+from fastapi import FastAPI, File, Form, Header, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pydantic_ai.messages import ModelMessage
@@ -16,9 +22,9 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.agent_llm import run_agent_stream, run_agent_sync
 
-logger = logging.getLogger("anvil")
+logger = logging.getLogger("champ")
 
-app = FastAPI(title="Anvil API")
+app = FastAPI(title="Champ API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,6 +33,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def _on_startup():
+    _ensure_default_user()
+
 
 # ── In-memory agent store ────────────────────────────────────────
 agents: dict[str, dict] = {}
@@ -47,13 +59,553 @@ data_edges: list[dict] = []
 agent_conversations: dict[str, list[ModelMessage]] = {}
 
 # ── Agent workspace ─────────────────────────────────────────────
-BUILD_ROOT = Path(__file__).resolve().parent.parent / ".build"
+_project_dir = os.environ.get("CHAMP_PROJECT_DIR")
+BUILD_ROOT = (
+    Path(_project_dir) / ".build"
+    if _project_dir
+    else Path(__file__).resolve().parent.parent / ".build"
+)
 
 
 def get_workspace(agent_id: str) -> Path:
     ws = BUILD_ROOT / agent_id / "uploads"
     ws.mkdir(parents=True, exist_ok=True)
     return ws
+
+
+# ── Auth: local JSON user store ──────────────────────────────────
+JWT_SECRET = os.environ.get("CHAMP_JWT_SECRET", secrets.token_hex(32))
+CHAMP_ROOT = (
+    Path(_project_dir) / ".champ"
+    if _project_dir
+    else Path(__file__).resolve().parent.parent / ".champ"
+)
+USERS_FILE = CHAMP_ROOT / "users.json"
+
+
+def _load_users() -> dict:
+    if USERS_FILE.exists():
+        return json.loads(USERS_FILE.read_text())
+    return {}
+
+
+def _ensure_default_user():
+    """Create the default 'champ' account on first run."""
+    users = _load_users()
+    default_email = "champ@lmco.com"
+    if default_email not in users:
+        user_id = "champ"
+        users[default_email] = {
+            "user_id": user_id,
+            "email": default_email,
+            "name": "champ",
+            "password_hash": _hash_password("champ"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        _save_users(users)
+        get_user_space(user_id)
+
+
+def _save_users(users: dict):
+    USERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    USERS_FILE.write_text(json.dumps(users, indent=2))
+
+
+def _hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    h = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
+    return f"{salt}${h.hex()}"
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    salt, h = stored.split("$", 1)
+    check = hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), salt.encode(), 100_000
+    )
+    return check.hex() == h
+
+
+def _make_token(user_id: str, email: str) -> str:
+    return jwt.encode(
+        {"sub": user_id, "email": email}, JWT_SECRET, algorithm="HS256"
+    )
+
+
+def _decode_token(token: str) -> dict | None:
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except jwt.PyJWTError:
+        return None
+
+
+def get_user_space(user_id: str) -> Path:
+    """Return (and create) a user's personal workspace directory."""
+    space = CHAMP_ROOT / user_id
+    space.mkdir(parents=True, exist_ok=True)
+    # Create default sub-dirs
+    for sub in ("uploads", "flows"):
+        (space / sub).mkdir(exist_ok=True)
+    return space
+
+
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+    name: str = ""
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/auth/signup")
+async def auth_signup(req: SignupRequest):
+    users = _load_users()
+    if req.email in users:
+        return {"status": "error", "message": "Email already registered"}
+    user_id = str(uuid.uuid4())
+    users[req.email] = {
+        "user_id": user_id,
+        "email": req.email,
+        "name": req.name or req.email.split("@")[0],
+        "password_hash": _hash_password(req.password),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _save_users(users)
+    space = get_user_space(user_id)
+    token = _make_token(user_id, req.email)
+    return {
+        "status": "success",
+        "token": token,
+        "user": {
+            "user_id": user_id,
+            "email": req.email,
+            "name": users[req.email]["name"],
+            "workspace": str(space),
+        },
+    }
+
+
+@app.post("/auth/login")
+async def auth_login(req: LoginRequest):
+    users = _load_users()
+    user = users.get(req.email)
+    if not user or not _verify_password(req.password, user["password_hash"]):
+        return {"status": "error", "message": "Invalid email or password"}
+    space = get_user_space(user["user_id"])
+    token = _make_token(user["user_id"], req.email)
+    return {
+        "status": "success",
+        "token": token,
+        "user": {
+            "user_id": user["user_id"],
+            "email": req.email,
+            "name": user["name"],
+            "workspace": str(space),
+        },
+    }
+
+
+@app.get("/auth/me")
+async def auth_me(authorization: str = Header(default="")):
+    if not authorization.startswith("Bearer "):
+        return {"status": "error", "message": "Not authenticated"}
+    payload = _decode_token(authorization[7:])
+    if not payload:
+        return {"status": "error", "message": "Invalid token"}
+    users = _load_users()
+    user = users.get(payload["email"])
+    if not user:
+        return {"status": "error", "message": "User not found"}
+    space = get_user_space(user["user_id"])
+    return {
+        "status": "success",
+        "user": {
+            "user_id": user["user_id"],
+            "email": user["email"],
+            "name": user["name"],
+            "workspace": str(space),
+        },
+    }
+
+
+# ── Auth helper ──────────────────────────────────────────────────
+
+
+def _require_user(authorization: str) -> dict | None:
+    """Extract user dict from Bearer token, or None."""
+    if not authorization.startswith("Bearer "):
+        return None
+    payload = _decode_token(authorization[7:])
+    if not payload:
+        return None
+    users = _load_users()
+    return users.get(payload["email"])
+
+
+# ── Missions (per-user, directory-based) ─────────────────────────
+#
+# Structure: .champ/{user_id}/{mission_id}/
+#              └── mission.json   (metadata)
+#              └── ...            (future: artifacts, uploads, etc.)
+
+
+class CreateMissionRequest(BaseModel):
+    mission_id: str
+    name: str
+    description: str = ""
+
+
+class UpdateMissionRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    phase: str | None = None
+
+
+def _mission_dir(user_id: str, mission_id: str) -> Path:
+    d = CHAMP_ROOT / user_id / mission_id
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _mission_meta(user_id: str, mission_id: str) -> Path:
+    return _mission_dir(user_id, mission_id) / "mission.json"
+
+
+def _load_mission(user_id: str, mission_id: str) -> dict | None:
+    f = _mission_meta(user_id, mission_id)
+    if f.exists():
+        return json.loads(f.read_text())
+    return None
+
+
+def _save_mission(user_id: str, mission: dict):
+    f = _mission_meta(user_id, mission["mission_id"])
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(mission, indent=2))
+
+
+def _list_user_missions(user_id: str) -> list[dict]:
+    user_dir = CHAMP_ROOT / user_id
+    if not user_dir.exists():
+        return []
+    result = []
+    for meta in sorted(user_dir.glob("*/mission.json")):
+        try:
+            result.append(json.loads(meta.read_text()))
+        except (json.JSONDecodeError, OSError):
+            continue
+    return result
+
+
+@app.post("/missions")
+async def create_mission(
+    req: CreateMissionRequest,
+    authorization: str = Header(default=""),
+):
+    user = _require_user(authorization)
+    if not user:
+        return {"status": "error", "message": "Not authenticated"}
+
+    existing = _load_mission(user["user_id"], req.mission_id)
+    if existing:
+        return {"status": "error", "message": "Mission already exists"}
+
+    mission = {
+        "mission_id": req.mission_id,
+        "user_id": user["user_id"],
+        "name": req.name,
+        "description": req.description,
+        "phase": "pre-mission",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _save_mission(user["user_id"], mission)
+    return {"status": "success", "mission": mission}
+
+
+@app.get("/missions")
+async def list_missions(
+    authorization: str = Header(default=""),
+):
+    user = _require_user(authorization)
+    if not user:
+        return {"status": "error", "message": "Not authenticated"}
+
+    return {
+        "status": "success",
+        "missions": _list_user_missions(user["user_id"]),
+    }
+
+
+@app.get("/missions/{mission_id}")
+async def get_mission(
+    mission_id: str,
+    authorization: str = Header(default=""),
+):
+    user = _require_user(authorization)
+    if not user:
+        return {"status": "error", "message": "Not authenticated"}
+
+    mission = _load_mission(user["user_id"], mission_id)
+    if not mission:
+        return {"status": "error", "message": "Mission not found"}
+    return {"status": "success", "mission": mission}
+
+
+@app.put("/missions/{mission_id}")
+async def update_mission(
+    mission_id: str,
+    req: UpdateMissionRequest,
+    authorization: str = Header(default=""),
+):
+    user = _require_user(authorization)
+    if not user:
+        return {"status": "error", "message": "Not authenticated"}
+
+    mission = _load_mission(user["user_id"], mission_id)
+    if not mission:
+        return {"status": "error", "message": "Mission not found"}
+
+    if req.name is not None:
+        mission["name"] = req.name
+    if req.description is not None:
+        mission["description"] = req.description
+    if req.phase is not None:
+        mission["phase"] = req.phase
+    mission["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    _save_mission(user["user_id"], mission)
+    return {"status": "success", "mission": mission}
+
+
+@app.delete("/missions/{mission_id}")
+async def delete_mission(
+    mission_id: str,
+    authorization: str = Header(default=""),
+):
+    user = _require_user(authorization)
+    if not user:
+        return {"status": "error", "message": "Not authenticated"}
+
+    mission_dir = CHAMP_ROOT / user["user_id"] / mission_id
+    if not mission_dir.exists():
+        return {"status": "error", "message": "Mission not found"}
+
+    shutil.rmtree(mission_dir)
+    return {"status": "success", "message": f"Mission {mission_id} deleted"}
+
+
+# ── Flow config persistence (agent_config.xml) ───────────────────
+
+
+class SaveFlowConfigRequest(BaseModel):
+    agents: list[dict] = []
+    connectors: list[dict] = []
+    data_edges: list[dict] = []
+
+
+def _flow_to_xml(payload: dict) -> str:
+    """Convert a serialized flow payload to XML."""
+    root = ET.Element(
+        "agent_config",
+        attrib={
+            "version": "1",
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+    agents_el = ET.SubElement(root, "agents")
+    for agent in payload.get("agents", []):
+        a_el = ET.SubElement(
+            agents_el,
+            "agent",
+            attrib={"id": agent.get("agent_id", "")},
+        )
+        ET.SubElement(a_el, "deployment").text = agent.get(
+            "deployment", ""
+        )
+        if agent.get("leader"):
+            ET.SubElement(a_el, "leader").text = agent["leader"]
+        if agent.get("team_members"):
+            tm_el = ET.SubElement(a_el, "team_members")
+            for tm in agent["team_members"]:
+                ET.SubElement(tm_el, "member").text = str(tm)
+        if agent.get("sub_agents"):
+            sa_el = ET.SubElement(a_el, "sub_agents")
+            for sa in agent["sub_agents"]:
+                ET.SubElement(sa_el, "sub_agent").text = str(sa)
+        if agent.get("kwargs"):
+            ET.SubElement(a_el, "kwargs").text = json.dumps(
+                agent["kwargs"]
+            )
+
+        cfg = agent.get("agent_config", {})
+        cfg_el = ET.SubElement(a_el, "agent_config")
+        llm = cfg.get("llm_config", {})
+        llm_el = ET.SubElement(cfg_el, "llm_config")
+        for k, v in llm.items():
+            ET.SubElement(llm_el, k).text = str(v)
+        reasoning = cfg.get("reasoning_config", {})
+        r_el = ET.SubElement(cfg_el, "reasoning_config")
+        for k, v in reasoning.items():
+            ET.SubElement(r_el, k).text = str(v)
+        tools = cfg.get("tool_config", {})
+        t_el = ET.SubElement(cfg_el, "tool_config")
+        for tool_name in tools.get("tools_list", []):
+            ET.SubElement(t_el, "tool").text = tool_name
+
+    connectors_el = ET.SubElement(root, "connectors")
+    for conn in payload.get("connectors", []):
+        c_el = ET.SubElement(
+            connectors_el,
+            "connector",
+            attrib={"id": conn.get("connector_id", "")},
+        )
+        ET.SubElement(c_el, "name").text = conn.get("name", "")
+        ET.SubElement(c_el, "protocol").text = conn.get(
+            "protocol", ""
+        )
+
+        for cfg_key in (
+            "kafka_config",
+            "dis_config",
+            "uci_config",
+            "zmq_config",
+        ):
+            cfg_data = conn.get(cfg_key)
+            if cfg_data:
+                cfg_el = ET.SubElement(c_el, cfg_key)
+                for k, v in cfg_data.items():
+                    if isinstance(v, list):
+                        list_el = ET.SubElement(cfg_el, k)
+                        for item in v:
+                            ET.SubElement(
+                                list_el, "item"
+                            ).text = str(item)
+                    else:
+                        ET.SubElement(cfg_el, k).text = str(v)
+
+    edges_el = ET.SubElement(root, "data_edges")
+    for edge in payload.get("data_edges", []):
+        ET.SubElement(
+            edges_el,
+            "edge",
+            attrib={
+                "source_connector": edge.get(
+                    "source_connector", ""
+                ),
+                "target_agent": edge.get("target_agent", ""),
+            },
+        )
+
+    rough = ET.tostring(root, encoding="unicode", xml_declaration=True)
+    return minidom.parseString(rough).toprettyxml(indent="  ")
+
+
+@app.post("/missions/{mission_id}/flow-config")
+async def save_flow_config(
+    mission_id: str,
+    req: SaveFlowConfigRequest,
+    authorization: str = Header(default=""),
+):
+    user = _require_user(authorization)
+    if not user:
+        return {"status": "error", "message": "Not authenticated"}
+
+    mission = _load_mission(user["user_id"], mission_id)
+    if not mission:
+        return {"status": "error", "message": "Mission not found"}
+
+    xml_str = _flow_to_xml(req.model_dump())
+    dest = _mission_dir(user["user_id"], mission_id) / "agent_config.xml"
+    dest.write_text(xml_str, encoding="utf-8")
+
+    return {
+        "status": "success",
+        "path": str(dest),
+        "message": f"Flow config saved to {dest.name}",
+    }
+
+
+@app.get("/missions/{mission_id}/flow-config")
+async def get_flow_config(
+    mission_id: str,
+    authorization: str = Header(default=""),
+):
+    user = _require_user(authorization)
+    if not user:
+        return {"status": "error", "message": "Not authenticated"}
+
+    dest = (
+        _mission_dir(user["user_id"], mission_id) / "agent_config.xml"
+    )
+    if not dest.exists():
+        return {
+            "status": "error",
+            "message": "No flow config saved for this mission",
+        }
+
+    return {
+        "status": "success",
+        "xml": dest.read_text(encoding="utf-8"),
+    }
+
+
+# ── Flow snapshot persistence (full nodes/edges JSON) ────────────
+
+
+class SaveFlowSnapshotRequest(BaseModel):
+    nodes: list[dict] = []
+    edges: list[dict] = []
+
+
+@app.post("/missions/{mission_id}/flow-snapshot")
+async def save_flow_snapshot(
+    mission_id: str,
+    req: SaveFlowSnapshotRequest,
+    authorization: str = Header(default=""),
+):
+    user = _require_user(authorization)
+    if not user:
+        return {"status": "error", "message": "Not authenticated"}
+
+    mission = _load_mission(user["user_id"], mission_id)
+    if not mission:
+        return {"status": "error", "message": "Mission not found"}
+
+    dest = (
+        _mission_dir(user["user_id"], mission_id) / "flow_snapshot.json"
+    )
+    dest.write_text(
+        json.dumps(req.model_dump(), indent=2), encoding="utf-8"
+    )
+    return {"status": "success", "message": "Flow snapshot saved"}
+
+
+@app.get("/missions/{mission_id}/flow-snapshot")
+async def get_flow_snapshot(
+    mission_id: str,
+    authorization: str = Header(default=""),
+):
+    user = _require_user(authorization)
+    if not user:
+        return {"status": "error", "message": "Not authenticated"}
+
+    dest = (
+        _mission_dir(user["user_id"], mission_id) / "flow_snapshot.json"
+    )
+    if not dest.exists():
+        return {
+            "status": "error",
+            "message": "No flow snapshot for this mission",
+        }
+
+    return {
+        "status": "success",
+        "snapshot": json.loads(dest.read_text(encoding="utf-8")),
+    }
 
 
 # ── Schemas ──────────────────────────────────────────────────────
@@ -94,6 +646,7 @@ class ChatRequest(BaseModel):
 
 class AgentConfigPayload(BaseModel):
     """Full agent config sent from the frontend."""
+
     llm_config: dict = {}
     reasoning_config: dict = {}
     tool_config: dict = {}
@@ -101,6 +654,7 @@ class AgentConfigPayload(BaseModel):
 
 class AgentSingleFull(BaseModel):
     """Extended agent creation with full config."""
+
     agent_id: str | None = None
     name: str
     model: str = "gpt-4o"
@@ -108,6 +662,7 @@ class AgentSingleFull(BaseModel):
 
 
 # ── Background agent loop ────────────────────────────────────────
+
 
 async def agent_run_loop(agent_id: str):
     """Simulate a long-running agent process."""
@@ -164,12 +719,15 @@ async def configure_llm(request: LlmSettingsRequest):
     llm_settings["api_key"] = request.api_key
     llm_settings["default_model"] = request.default_model
     llm_settings["base_url"] = request.base_url
-    return {"status": "success", "settings": {
-        "provider": request.provider,
-        "default_model": request.default_model,
-        "base_url": request.base_url,
-        "api_key_set": bool(request.api_key),
-    }}
+    return {
+        "status": "success",
+        "settings": {
+            "provider": request.provider,
+            "default_model": request.default_model,
+            "base_url": request.base_url,
+            "api_key_set": bool(request.api_key),
+        },
+    }
 
 
 # ── Data Edges ──────────────────────────────────────────────────
@@ -225,7 +783,10 @@ async def agent_chat(agent_id: str, request: ChatRequest):
     if agent_id not in agents:
         return {"status": "error", "message": f"Agent {agent_id} not found"}
     if not llm_settings.get("api_key"):
-        return {"status": "error", "message": "LLM not configured. POST /llm/configure first."}
+        return {
+            "status": "error",
+            "message": "LLM not configured. POST /llm/configure first.",
+        }
 
     async def event_generator():
         async for event in run_agent_stream(
@@ -252,7 +813,10 @@ async def agent_chat_sync(agent_id: str, request: ChatRequest):
     if agent_id not in agents:
         return {"status": "error", "message": f"Agent {agent_id} not found"}
     if not llm_settings.get("api_key"):
-        return {"status": "error", "message": "LLM not configured. POST /llm/configure first."}
+        return {
+            "status": "error",
+            "message": "LLM not configured. POST /llm/configure first.",
+        }
 
     result = await run_agent_sync(
         agent_id=agent_id,
@@ -306,13 +870,15 @@ async def list_agent_files(agent_id: str):
     for f in sorted(workspace.iterdir()):
         if f.is_file():
             stat = f.stat()
-            files.append({
-                "name": f.name,
-                "size": stat.st_size,
-                "uploaded_at": datetime.fromtimestamp(
-                    stat.st_mtime, tz=timezone.utc
-                ).isoformat(),
-            })
+            files.append(
+                {
+                    "name": f.name,
+                    "size": stat.st_size,
+                    "uploaded_at": datetime.fromtimestamp(
+                        stat.st_mtime, tz=timezone.utc
+                    ).isoformat(),
+                }
+            )
     return {"agent_id": agent_id, "files": files}
 
 
@@ -373,9 +939,7 @@ async def add_agent_single(request: AgentSingleFull):
         "status": "starting",
         "workspace": str(workspace),
         "agent_config": (
-            request.agent_config.model_dump()
-            if request.agent_config
-            else {}
+            request.agent_config.model_dump() if request.agent_config else {}
         ),
     }
     start_agent_task(agent_id)
@@ -580,7 +1144,9 @@ async def dis_listener_loop(connector_id: str, config: DisConnectorConfig):
         from opendis.dis7 import EntityStatePdu  # type: ignore[import-untyped]
         from opendis.PduFactory import createPdu  # type: ignore[import-untyped]
 
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        sock = socket.socket(
+            socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP
+        )
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("", config.port))
         mreq = struct.pack(
@@ -680,7 +1246,9 @@ async def zmq_subscriber_loop(connector_id: str, config: ZmqConnectorConfig):
                     msg = await asyncio.wait_for(sock.recv_json(), timeout=2.0)
                     buf = connectors[connector_id]["data_buffer"]
                     if isinstance(msg, dict):
-                        msg["timestamp"] = datetime.now(timezone.utc).isoformat()
+                        msg["timestamp"] = datetime.now(
+                            timezone.utc
+                        ).isoformat()
                     buf.append(msg)
                     connectors[connector_id]["message_count"] += 1
                 except (TimeoutError, asyncio.TimeoutError):
@@ -733,7 +1301,10 @@ async def zmq_subscriber_loop(connector_id: str, config: ZmqConnectorConfig):
 async def start_connector(request: ConnectorStartRequest):
     cid = request.connector_id or str(uuid.uuid4())
     if cid in connectors:
-        return {"status": "error", "message": f"Connector {cid} already running"}
+        return {
+            "status": "error",
+            "message": f"Connector {cid} already running",
+        }
 
     connectors[cid] = {
         "connector_id": cid,
@@ -755,7 +1326,10 @@ async def start_connector(request: ConnectorStartRequest):
         task = asyncio.create_task(dis_listener_loop(cid, cfg))
     else:
         del connectors[cid]
-        return {"status": "error", "message": f"Unsupported protocol: {request.protocol}"}
+        return {
+            "status": "error",
+            "message": f"Unsupported protocol: {request.protocol}",
+        }
 
     connector_tasks[cid] = task
     return {"status": "success", "connector_id": cid}
@@ -767,7 +1341,10 @@ async def get_connector_data(
     last_n: int = Query(default=50, ge=1, le=MAX_BUFFER),
 ):
     if connector_id not in connectors:
-        return {"status": "error", "message": f"Connector {connector_id} not found"}
+        return {
+            "status": "error",
+            "message": f"Connector {connector_id} not found",
+        }
     buf = connectors[connector_id]["data_buffer"]
     data = list(buf)[-last_n:]
     return {
@@ -781,7 +1358,10 @@ async def get_connector_data(
 @app.delete("/connectors/{connector_id}/stop")
 async def stop_connector(connector_id: str):
     if connector_id not in connectors:
-        return {"status": "error", "message": f"Connector {connector_id} not found"}
+        return {
+            "status": "error",
+            "message": f"Connector {connector_id} not found",
+        }
     task = connector_tasks.pop(connector_id, None)
     if task and not task.done():
         task.cancel()
@@ -801,11 +1381,13 @@ async def stop_connector(connector_id: str):
 async def list_connectors():
     result = []
     for cid, info in connectors.items():
-        result.append({
-            "connector_id": cid,
-            "name": info["name"],
-            "protocol": info["protocol"],
-            "status": info["status"],
-            "message_count": info["message_count"],
-        })
+        result.append(
+            {
+                "connector_id": cid,
+                "name": info["name"],
+                "protocol": info["protocol"],
+                "status": info["status"],
+                "message_count": info["message_count"],
+            }
+        )
     return {"connectors": result}

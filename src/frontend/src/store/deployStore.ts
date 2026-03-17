@@ -1,11 +1,12 @@
 import { create } from 'zustand'
-import { anvilApi } from '@/lib/anvilApi'
+import { champApi } from '@/lib/champApi'
 import {
   useFlowStore,
   serializeFlowToPayload,
   type AgentNode,
   type ConnectorNode,
 } from '@/store/flowStore'
+import { getStore } from '@/store/storeRegistry'
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -52,6 +53,40 @@ function log(
   }))
 }
 
+/** Fire-and-forget: persist the flow config as XML under the active mission. */
+function autoSaveFlowConfig(
+  payload: ReturnType<typeof serializeFlowToPayload>,
+  logFn: typeof log,
+  set: Parameters<typeof log>[0],
+) {
+  try {
+    const msnState = getStore('mission').getState() as {
+      mission: { id: string } | null
+    }
+    const missionId = msnState.mission?.id
+    if (!missionId) return
+
+    champApi
+      .saveFlowConfig(missionId, payload)
+      .then(() =>
+        logFn(
+          set,
+          `Flow config saved to ${missionId}/agent_config.xml`,
+          'success',
+        ),
+      )
+      .catch(() =>
+        logFn(
+          set,
+          'Failed to save flow config (non-blocking)',
+          'error',
+        ),
+      )
+  } catch {
+    // mission store may not be registered yet — silently skip
+  }
+}
+
 // ── Store ────────────────────────────────────────────────────────
 
 export const useDeployStore = create<
@@ -65,14 +100,14 @@ export const useDeployStore = create<
 
   deployFlow: async () => {
     const flow = useFlowStore.getState()
-    const { nodes, edges, universalSettings, anvilHost } =
+    const { nodes, edges, universalSettings, champHost } =
       flow
 
     // Validate prerequisites
-    if (!anvilHost) {
+    if (!champHost) {
       set({
         status: 'error',
-        error: 'Anvil host not configured',
+        error: 'Champ host not configured',
       })
       return
     }
@@ -106,7 +141,7 @@ export const useDeployStore = create<
     try {
       // Step 1: Configure LLM
       log(set, 'Configuring LLM...')
-      await anvilApi.configureLlm({
+      await champApi.configureLlm({
         provider: universalSettings.provider,
         api_key: universalSettings.apiKey,
         default_model: universalSettings.defaultModel,
@@ -125,7 +160,7 @@ export const useDeployStore = create<
           set,
           `Deploying agent: ${agentPayload.agent_id}...`,
         )
-        await anvilApi.addAgent({
+        await champApi.addAgent({
           agent_id: agentPayload.agent_id,
           name:
             agentNodes.find(
@@ -212,9 +247,9 @@ export const useDeployStore = create<
             : undefined
         }
 
-        await anvilApi.startConnector(
+        await champApi.startConnector(
           startPayload as Parameters<
-            typeof anvilApi.startConnector
+            typeof champApi.startConnector
           >[0],
         )
 
@@ -242,7 +277,7 @@ export const useDeployStore = create<
           set,
           `Syncing ${payload.data_edges.length} data edge(s)...`,
         )
-        await anvilApi.syncEdges(payload.data_edges)
+        await champApi.syncEdges(payload.data_edges)
         log(
           set,
           `Synced ${payload.data_edges.length} data edge(s)`,
@@ -253,6 +288,9 @@ export const useDeployStore = create<
       // Done
       set({ status: 'deployed' })
       log(set, 'Deployment complete', 'success')
+
+      // Auto-save flow config as XML under the active mission
+      autoSaveFlowConfig(payload, log, set)
     } catch (err) {
       const message =
         err instanceof Error
@@ -269,15 +307,15 @@ export const useDeployStore = create<
       nodes,
       edges,
       universalSettings,
-      anvilHost,
+      champHost,
     } = flow
     const { deployedAgentIds, deployedConnectorIds } =
       get()
 
-    if (!anvilHost) {
+    if (!champHost) {
       set({
         status: 'error',
-        error: 'Anvil host not configured',
+        error: 'Champ host not configured',
       })
       return
     }
@@ -301,7 +339,7 @@ export const useDeployStore = create<
     try {
       // Ensure LLM is configured
       log(set, 'Configuring LLM...')
-      await anvilApi.configureLlm({
+      await champApi.configureLlm({
         provider: universalSettings.provider,
         api_key: universalSettings.apiKey,
         default_model: universalSettings.defaultModel,
@@ -333,7 +371,7 @@ export const useDeployStore = create<
           set,
           `Deploying agent: ${agentNode.data.name}...`,
         )
-        await anvilApi.addAgent({
+        await champApi.addAgent({
           agent_id: agentPayload.agent_id,
           name: agentNode.data.name,
           model:
@@ -432,9 +470,9 @@ export const useDeployStore = create<
           set,
           `Starting connector: ${connPayload.name}...`,
         )
-        await anvilApi.startConnector(
+        await champApi.startConnector(
           startPayload as Parameters<
-            typeof anvilApi.startConnector
+            typeof champApi.startConnector
           >[0],
         )
 
@@ -459,7 +497,7 @@ export const useDeployStore = create<
       // Sync all current edges
       const allEdges = payload.data_edges
       if (allEdges.length > 0) {
-        await anvilApi.syncEdges(allEdges)
+        await champApi.syncEdges(allEdges)
         log(
           set,
           `Synced ${allEdges.length} edge(s)`,
@@ -469,6 +507,9 @@ export const useDeployStore = create<
 
       set({ status: 'deployed' })
       log(set, 'Selective deploy complete', 'success')
+
+      // Auto-save flow config as XML under the active mission
+      autoSaveFlowConfig(payload, log, set)
     } catch (err) {
       const message =
         err instanceof Error
@@ -493,14 +534,14 @@ export const useDeployStore = create<
       log(set, 'Tearing down...')
 
       // Decommission all agents
-      await anvilApi.decommissionAll()
+      await champApi.decommissionAll()
       log(set, 'All agents decommissioned', 'success')
 
       // Stop all connectors
       const { deployedConnectorIds } = get()
       for (const cid of deployedConnectorIds) {
         try {
-          await anvilApi.stopConnector(cid)
+          await champApi.stopConnector(cid)
         } catch {
           // connector may already be stopped
         }

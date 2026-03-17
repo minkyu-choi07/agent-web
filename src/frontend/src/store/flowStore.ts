@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { registerStore } from '@/store/storeRegistry'
 import {
   type Node,
   type Edge,
@@ -96,9 +97,9 @@ export type FlowState = {
   edges: Edge[]
   selectedNodeId: string | null
   universalSettings: UniversalSettings
-  anvilHost: string
+  champHost: string
   llmConfiguredAt: string | null
-  anvilConfiguredAt: string | null
+  champConfiguredAt: string | null
   configPanelOpen: boolean
   settingsPanelOpen: boolean
 }
@@ -125,9 +126,9 @@ export type FlowActions = {
   updateUniversalSettings: (
     settings: Partial<UniversalSettings>,
   ) => void
-  setAnvilHost: (host: string) => void
+  setChampHost: (host: string) => void
   configureLlm: () => void
-  configureAnvil: () => void
+  configureChamp: () => void
   setNodeStatus: (id: string, status: string) => void
   clearFlow: () => void
 }
@@ -360,9 +361,9 @@ export const useFlowStore = create<FlowState & FlowActions>()(
       edges: [],
       selectedNodeId: null,
       universalSettings: defaultUniversalSettings,
-      anvilHost: '',
+      champHost: process.env.NEXT_PUBLIC_CHAMP_HOST || '',
       llmConfiguredAt: null,
-      anvilConfiguredAt: null,
+      champConfiguredAt: null,
       configPanelOpen: false,
       settingsPanelOpen: false,
 
@@ -468,17 +469,17 @@ export const useFlowStore = create<FlowState & FlowActions>()(
           llmConfiguredAt: null,
         }),
 
-      setAnvilHost: (host) =>
-        set({ anvilHost: host, anvilConfiguredAt: null }),
+      setChampHost: (host) =>
+        set({ champHost: host, champConfiguredAt: null }),
 
       configureLlm: () =>
         set({
           llmConfiguredAt: new Date().toISOString(),
         }),
 
-      configureAnvil: () =>
+      configureChamp: () =>
         set({
-          anvilConfiguredAt: new Date().toISOString(),
+          champConfiguredAt: new Date().toISOString(),
         }),
 
       setNodeStatus: (id, status) =>
@@ -502,13 +503,13 @@ export const useFlowStore = create<FlowState & FlowActions>()(
         }),
     }),
     {
-      name: 'anvil-flow-storage',
+      name: 'champ-flow-storage',
       partialize: (state) => ({
-        nodes: state.nodes,
-        edges: state.edges,
         universalSettings: state.universalSettings,
-        anvilHost: state.anvilHost,
+        champHost: state.champHost,
       }),
     },
   ),
 )
+
+registerStore('flow', useFlowStore)

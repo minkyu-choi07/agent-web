@@ -3,8 +3,10 @@ import {
   streamChat,
   streamChatWithFile,
   type SSEEvent,
-} from '@/lib/anvilApi'
+} from '@/lib/champApi'
+import { registerStore } from '@/store/storeRegistry'
 import { useFlowStore } from '@/store/flowStore'
+import { useMissionStore } from '@/store/missionStore'
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -317,6 +319,47 @@ export const useChatStore = create<
                 }
               }
             }
+
+            // Map overlay tool detection
+            if (
+              toolCall.tool === 'update_map_overlay'
+            ) {
+              const missionStore =
+                useMissionStore.getState()
+              const entities = toolCall.args
+                .entities as Array<{
+                type: string
+                name: string
+                affiliation: string
+                geometry: GeoJSON.Geometry
+                properties: Record<string, unknown>
+                visible?: boolean
+                color?: string
+              }>
+              if (entities && Array.isArray(entities)) {
+                missionStore.addEntities(
+                  entities.map((e) => ({
+                    type: e.type as import('@/store/missionStore').MapEntityType,
+                    name: e.name || 'Unnamed',
+                    affiliation: (e.affiliation ||
+                      'unknown') as import('@/store/missionStore').ForceAffiliation,
+                    geometry: e.geometry,
+                    properties: e.properties || {},
+                    visible: e.visible !== false,
+                    color: e.color || '',
+                    createdBy: 'agent' as const,
+                    agentSourceId: agentId,
+                  })),
+                )
+              }
+              const viewport = toolCall.args
+                .viewport as
+                | Record<string, number>
+                | undefined
+              if (viewport) {
+                missionStore.setViewport(viewport)
+              }
+            }
             break
           }
 
@@ -552,3 +595,5 @@ export const useChatStore = create<
     set({ activeController: controller })
   },
 }))
+
+registerStore('chat', useChatStore)

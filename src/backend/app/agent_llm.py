@@ -1,4 +1,4 @@
-"""PydanticAI-based agent LLM service for Anvil.
+"""PydanticAI-based agent LLM service for Champ.
 
 Provides:
 - Agent factory with OpenAI-compatible endpoint support
@@ -29,7 +29,7 @@ from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.anthropic import AnthropicProvider
 
-logger = logging.getLogger("anvil.agent_llm")
+logger = logging.getLogger("champ.agent_llm")
 
 # ---------------------------------------------------------------------------
 # Dependency context — passed into every tool call
@@ -96,10 +96,27 @@ def build_connector_context(
 
 
 TEXT_EXTENSIONS = {
-    ".txt", ".csv", ".json", ".md", ".py", ".js",
-    ".ts", ".yaml", ".yml", ".xml", ".html", ".css",
-    ".sql", ".sh", ".log", ".ini", ".cfg", ".toml",
-    ".env", ".tsv", ".rst",
+    ".txt",
+    ".csv",
+    ".json",
+    ".md",
+    ".py",
+    ".js",
+    ".ts",
+    ".yaml",
+    ".yml",
+    ".xml",
+    ".html",
+    ".css",
+    ".sql",
+    ".sh",
+    ".log",
+    ".ini",
+    ".cfg",
+    ".toml",
+    ".env",
+    ".tsv",
+    ".rst",
 }
 MAX_FILE_CHARS = 4000
 
@@ -133,17 +150,12 @@ def build_file_context(agent_info: dict) -> str:
                         + f"\n\n... [truncated, {size} bytes total]"
                     )
                 sections.append(
-                    f"### {f.name} ({size} bytes)\n"
-                    f"```\n{text}\n```"
+                    f"### {f.name} ({size} bytes)\n```\n{text}\n```"
                 )
             except Exception:
-                sections.append(
-                    f"### {f.name} ({size} bytes) — could not read"
-                )
+                sections.append(f"### {f.name} ({size} bytes) — could not read")
         else:
-            sections.append(
-                f"### {f.name} ({size} bytes, {ext or 'binary'})"
-            )
+            sections.append(f"### {f.name} ({size} bytes, {ext or 'binary'})")
 
     if not sections:
         return ""
@@ -161,7 +173,7 @@ def build_system_prompt(
     agent_config = agent_info.get("agent_config", {})
 
     parts: list[str] = [
-        f"You are **{name}** (id: {agent_id}), an AI agent in the Anvil system.",
+        f"You are **{name}** (id: {agent_id}), an AI agent in the Champ system.",
         "",
         "Your role is to analyse incoming data from connected sensors and "
         "data feeds, answer questions, and use your available tools when "
@@ -171,14 +183,10 @@ def build_system_prompt(
     # Add reasoning module hint if configured
     reasoning = agent_config.get("reasoning_config", {})
     if reasoning.get("reasoning_name"):
-        parts.append(
-            f"\nReasoning module: {reasoning['reasoning_name']}"
-        )
+        parts.append(f"\nReasoning module: {reasoning['reasoning_name']}")
 
     # Add live connector data
-    ctx = build_connector_context(
-        agent_id, connectors_store, data_edges
-    )
+    ctx = build_connector_context(agent_id, connectors_store, data_edges)
     if ctx:
         parts.append("")
         parts.append(ctx)
@@ -213,14 +221,14 @@ def create_model(
         or llm_settings.get("default_model", "gpt-4o")
     )
     base_url = (
-        llm_config.get("endpoint")
-        or llm_settings.get("base_url")
-        or None
+        llm_config.get("endpoint") or llm_settings.get("base_url") or None
     )
     api_key = llm_settings.get("api_key", "")
 
     if provider == "anthropic":
-        anthropic_provider = AnthropicProvider(api_key=api_key) if api_key else "anthropic"
+        anthropic_provider = (
+            AnthropicProvider(api_key=api_key) if api_key else "anthropic"
+        )
         return AnthropicModel(model_name, provider=anthropic_provider)
 
     # Default: OpenAI-compatible
@@ -257,14 +265,9 @@ def _make_agent_message_tool(agent: Agent[AgentDeps, str]):
             return f"Error: Agent {target_agent_id} not found."
         # If a send function is provided, use it
         if ctx.deps.send_to_agent:
-            result = await ctx.deps.send_to_agent(
-                target_agent_id, message
-            )
+            result = await ctx.deps.send_to_agent(target_agent_id, message)
             return json.dumps(result, default=str)
-        return (
-            f"Message delivered to agent {target_agent_id}: "
-            f"{message[:200]}"
-        )
+        return f"Message delivered to agent {target_agent_id}: {message[:200]}"
 
 
 def _make_graph_rag_tool(agent: Agent[AgentDeps, str]):
@@ -282,15 +285,17 @@ def _make_graph_rag_tool(agent: Agent[AgentDeps, str]):
         """
         # TODO: wire to actual Graph RAG endpoint
         logger.info("graph_rag query: %s", query)
-        return json.dumps({
-            "status": "stub",
-            "query": query,
-            "results": [],
-            "message": (
-                "Graph RAG service not yet connected. "
-                "Configure the endpoint in agent settings."
-            ),
-        })
+        return json.dumps(
+            {
+                "status": "stub",
+                "query": query,
+                "results": [],
+                "message": (
+                    "Graph RAG service not yet connected. "
+                    "Configure the endpoint in agent settings."
+                ),
+            }
+        )
 
 
 def _make_mdmp_plan_tool(agent: Agent[AgentDeps, str]):
@@ -310,16 +315,18 @@ def _make_mdmp_plan_tool(agent: Agent[AgentDeps, str]):
                         'coa_comparison', 'orders_production').
         """
         logger.info("mdmp_plan query: phase=%s, q=%s", plan_phase, query)
-        return json.dumps({
-            "status": "stub",
-            "query": query,
-            "phase": plan_phase,
-            "results": [],
-            "message": (
-                "MDMP Plan service not yet connected. "
-                "Configure the endpoint in agent settings."
-            ),
-        })
+        return json.dumps(
+            {
+                "status": "stub",
+                "query": query,
+                "phase": plan_phase,
+                "results": [],
+                "message": (
+                    "MDMP Plan service not yet connected. "
+                    "Configure the endpoint in agent settings."
+                ),
+            }
+        )
 
 
 def _make_text_to_sql_tool(agent: Agent[AgentDeps, str]):
@@ -338,16 +345,55 @@ def _make_text_to_sql_tool(agent: Agent[AgentDeps, str]):
             database_context: Optional schema or context about the database.
         """
         logger.info("text_to_sql: %s", question)
-        return json.dumps({
-            "status": "stub",
-            "question": question,
-            "sql": None,
-            "results": [],
-            "message": (
-                "Text-to-SQL service not yet connected. "
-                "Configure the endpoint in agent settings."
-            ),
-        })
+        return json.dumps(
+            {
+                "status": "stub",
+                "question": question,
+                "sql": None,
+                "results": [],
+                "message": (
+                    "Text-to-SQL service not yet connected. "
+                    "Configure the endpoint in agent settings."
+                ),
+            }
+        )
+
+
+def _make_map_overlay_tool(agent: Agent[AgentDeps, str]):
+    """Register MAP_OVERLAY tool — place tactical entities on the map."""
+
+    @agent.tool
+    async def update_map_overlay(
+        ctx: RunContext[AgentDeps],
+        entities: list[dict],
+        viewport: dict | None = None,
+    ) -> str:
+        """Place tactical entities on the mission planning map.
+
+        Args:
+            entities: List of map entities, each with:
+                - type: "unit"|"objective"|"route"|"zone"|"threat"|"waypoint"
+                - name: Display name for the entity
+                - affiliation: "friendly"|"hostile"|"neutral"|"unknown"
+                - geometry: GeoJSON geometry (Point, LineString, or Polygon)
+                - properties: Type-specific properties (unitType, echelon,
+                  routeType, zoneType, threatLevel, threatType, etc.)
+            viewport: Optional map viewport to center on:
+                - longitude, latitude, zoom, bearing, pitch
+        """
+        logger.info(
+            "map_overlay: %d entities, viewport=%s",
+            len(entities),
+            viewport is not None,
+        )
+        return json.dumps(
+            {
+                "status": "success",
+                "entity_count": len(entities),
+                "entities": entities,
+                "viewport": viewport,
+            }
+        )
 
 
 # Tool name → registration function
@@ -356,6 +402,7 @@ TOOL_REGISTRY: dict[str, Any] = {
     "GRAPH_RAG_CLOUD_SERVER": _make_graph_rag_tool,
     "MDMP_PLAN_SERVER": _make_mdmp_plan_tool,
     "TEXT_TO_SQL_CLOUD_SERVER": _make_text_to_sql_tool,
+    "MAP_OVERLAY": _make_map_overlay_tool,
 }
 
 
@@ -387,17 +434,13 @@ def create_agent(
 
     # Register tools based on agent's tool_config
     agent_config = agent_info.get("agent_config", {})
-    tools_list = (
-        agent_config.get("tool_config", {}).get("tools_list", [])
-    )
+    tools_list = agent_config.get("tool_config", {}).get("tools_list", [])
     for tool_name in tools_list:
         registrar = TOOL_REGISTRY.get(tool_name)
         if registrar:
             registrar(agent)
         else:
-            logger.warning(
-                "Unknown tool %s for agent %s", tool_name, agent_id
-            )
+            logger.warning("Unknown tool %s for agent %s", tool_name, agent_id)
 
     return agent
 
@@ -564,25 +607,25 @@ async def run_agent_sync(
         if isinstance(msg, ModelResponse):
             for part in msg.parts:
                 if isinstance(part, ToolCallPart):
-                    tool_calls.append({
-                        "tool": part.tool_name,
-                        "args": (
-                            part.args
-                            if isinstance(part.args, dict)
-                            else json.loads(part.args)
-                            if isinstance(part.args, str)
-                            else {}
-                        ),
-                    })
+                    tool_calls.append(
+                        {
+                            "tool": part.tool_name,
+                            "args": (
+                                part.args
+                                if isinstance(part.args, dict)
+                                else json.loads(part.args)
+                                if isinstance(part.args, str)
+                                else {}
+                            ),
+                        }
+                    )
 
     return {
         "response": result.output,
         "tool_calls": tool_calls,
         "usage": {
             "total_tokens": (
-                result.usage().total_tokens
-                if result.usage()
-                else None
+                result.usage().total_tokens if result.usage() else None
             ),
         },
     }

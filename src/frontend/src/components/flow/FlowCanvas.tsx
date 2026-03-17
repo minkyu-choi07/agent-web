@@ -187,12 +187,12 @@ export function FlowCanvas() {
     (event: React.DragEvent) => {
       event.preventDefault()
       const nodeType = event.dataTransfer.getData(
-        'application/anvil-node-type',
+        'application/champ-node-type',
       )
       if (!nodeType) return
 
       const label = event.dataTransfer.getData(
-        'application/anvil-node-label',
+        'application/champ-node-label',
       )
 
       const position = screenToFlowPosition({
