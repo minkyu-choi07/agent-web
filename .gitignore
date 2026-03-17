@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Environment
+src/backend/.env.example
+
+# Python cache
+src/backend/app/__pycache__/
+
+# Dependencies
+src/frontend/node_modules/
+
+# Next.js build output
+src/frontend/.next/
+src/frontend/tsconfig.tsbuildinfo
